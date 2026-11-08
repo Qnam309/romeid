@@ -1,0 +1,10 @@
+{
+  "0x4c6af768106b848f0eed88c0138b922f12d6e669": {
+    "evm": "0x4C6af768106b848f0EED88c0138B922F12D6e669",
+    "solana": "CWUJhDt2sXuh546ebf4wYTyiwbZ3ir18CoQFTu32WoZ7",
+    "proofDigest": "0x6b00e0d286d92c3e6d5c2b20524c9555067754c289e0e7326470d4026d7b4ac4",
+    "updatedAt": "2026-11-08T18:54:12.247Z",
+    "status": "off-chain verified",
+    "txHash": null
+  }
+}
