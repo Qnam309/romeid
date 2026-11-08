@@ -1,14 +1,33 @@
-import React,{useState} from 'react';import{createRoot}from'react-dom/client';import{BrowserProvider,getAddress}from'ethers';import bs58 from'bs58';import{Wallet,ShieldCheck,Link2,Search,ArrowRight,Copy,ExternalLink,CheckCircle2,AlertCircle}from'lucide-react';import './style.css';
+import React,{useState,useEffect} from 'react';import{createRoot}from'react-dom/client';import{BrowserProvider,getAddress}from'ethers';import bs58 from'bs58';import{Wallet,ShieldCheck,Link2,Search,ArrowRight,Copy,ExternalLink,CheckCircle2,AlertCircle}from'lucide-react';import './style.css';
 const API=import.meta.env.VITE_API_URL||'';
+// Explicitly select MetaMask, never Phantom's injected EVM provider.
+function discoverMetaMask(announced=[]){
+ const candidates=[...announced.map(x=>x.provider),...(window.ethereum?.providers||[]),window.ethereum].filter(Boolean);
+ return candidates.find(p=>p.isMetaMask && !p.isPhantom && !p.isBraveWallet) || null;
+}
 const short=s=>s?`${s.slice(0,7)}…${s.slice(-6)}`:'Not connected';
 async function json(url,options){const r=await fetch(API+url,options);const d=await r.json();if(!r.ok)throw Error(d.error||'Request failed');return d}
-function App(){const[evm,setEvm]=useState(''),[sol,setSol]=useState(''),[busy,setBusy]=useState(false),[status,setStatus]=useState(''),[error,setError]=useState(''),[profile,setProfile]=useState(null),[search,setSearch]=useState('');
- const connectEvm=async()=>{try{setError('');if(!window.ethereum)throw Error('Install MetaMask or another EVM wallet');const p=new BrowserProvider(window.ethereum);await p.send('eth_requestAccounts',[]);setEvm(await(await p.getSigner()).getAddress())}catch(e){setError(e.message)}};
+function App(){const[metaProvider,setMetaProvider]=useState(null),[evm,setEvm]=useState(''),[sol,setSol]=useState(''),[busy,setBusy]=useState(false),[status,setStatus]=useState(''),[error,setError]=useState(''),[profile,setProfile]=useState(null),[search,setSearch]=useState('');
+ useEffect(()=>{
+  const announced=[];
+  const onProvider=e=>{
+   if(e.detail?.provider && e.detail?.info?.rdns==='io.metamask'){
+    announced.push(e.detail);
+    setMetaProvider(discoverMetaMask(announced));
+   }
+  };
+  window.addEventListener('eip6963:announceProvider',onProvider);
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+  setMetaProvider(current=>current||discoverMetaMask(announced));
+  return ()=>window.removeEventListener('eip6963:announceProvider',onProvider);
+ },[]);
+ const getMetaMask=()=>metaProvider||discoverMetaMask();
+ const connectEvm=async()=>{try{setError('');const injected=getMetaMask();if(!injected)throw Error('MetaMask EVM provider not found. Enable MetaMask extension and reload.');const p=new BrowserProvider(injected);await p.send('eth_requestAccounts',[]);setEvm(await(await p.getSigner()).getAddress())}catch(e){setError(e.message)}};
  const connectSol=async()=>{try{setError('');const p=window.phantom?.solana||window.solana;if(!p?.isPhantom)throw Error('Install Phantom wallet');const r=await p.connect();setSol(r.publicKey.toBase58())}catch(e){setError(e.message)}};
  const link=async()=>{setBusy(true);setError('');setStatus('Creating a fresh verification challenge…');try{
  if(!evm||!sol)throw Error('Connect both wallets first');
  const c=await json('/api/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({evm,solana:sol})});
- setStatus('Sign the message in MetaMask (no transaction or gas)…');const evmProvider=new BrowserProvider(window.ethereum);const signer=await evmProvider.getSigner();if(getAddress(await signer.getAddress())!==getAddress(evm))throw Error('MetaMask account changed; reconnect');const evmSignature=await signer.signMessage(c.message);
+ setStatus('Sign the message in MetaMask (no transaction or gas)…');const injected=getMetaMask();if(!injected)throw Error('MetaMask provider unavailable; reconnect');const evmProvider=new BrowserProvider(injected);const signer=await evmProvider.getSigner();if(getAddress(await signer.getAddress())!==getAddress(evm))throw Error('MetaMask account changed; reconnect');const evmSignature=await signer.signMessage(c.message);
  setStatus('Sign the same message in Phantom…');const p=window.phantom?.solana||window.solana;if(!p?.signMessage)throw Error('Phantom signMessage is unavailable');if(p.publicKey?.toBase58()!==sol)throw Error('Phantom account changed; reconnect');const signed=await p.signMessage(new TextEncoder().encode(c.message),'utf8');const solanaSignature=bs58.encode(signed.signature);
  setStatus('Verifying both signatures…');const result=await json('/api/link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nonce:c.nonce,evmSignature,solanaSignature})});setProfile(result);setStatus(result.txHash?'Both wallets verified and attested on Hadrian!':result.anchorError?'Verified off-chain; on-chain anchoring failed: '+result.anchorError:'Both wallets verified and linked off-chain (anchoring not configured).');
  }catch(e){setError(e.message);setStatus('')}finally{setBusy(false)}};
